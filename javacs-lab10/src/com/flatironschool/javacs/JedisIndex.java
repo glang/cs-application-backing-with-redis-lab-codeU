@@ -9,6 +9,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 
+import org.jsoup.nodes.Node;
+import org.jsoup.nodes.TextNode;
 import org.jsoup.select.Elements;
 
 import redis.clients.jedis.Jedis;
@@ -68,7 +70,7 @@ public class JedisIndex {
 	 */
 	public Set<String> getURLs(String term) {
         // FILL THIS IN!
-		return null;
+		return jedis.smembers(urlSetKey(term));
 	}
 
     /**
@@ -79,7 +81,14 @@ public class JedisIndex {
 	 */
 	public Map<String, Integer> getCounts(String term) {
         // FILL THIS IN!
-		return null;
+		Map<String, Integer> map = new HashMap<String, Integer>();
+		Set<String> urls = jedis.smembers(urlSetKey(term));
+
+		for (String url : urls) {
+			map.put(url, getCount(url, term));
+		}
+
+		return map;
 	}
 
     /**
@@ -91,9 +100,8 @@ public class JedisIndex {
 	 */
 	public Integer getCount(String url, String term) {
         // FILL THIS IN!
-		return null;
+		return Integer.parseInt(jedis.hget(termCounterKey(url), term));
 	}
-
 
 	/**
 	 * Add a page to the index.
@@ -103,6 +111,33 @@ public class JedisIndex {
 	 */
 	public void indexPage(String url, Elements paragraphs) {
         // FILL THIS IN!
+		Transaction t = jedis.multi();
+
+		for (Node node: paragraphs) {
+			for (Node subnode: new WikiNodeIterable(node)) {
+				if (subnode instanceof TextNode) {
+					processText(t, url, ((TextNode) subnode).text());
+				}
+			}
+		}
+
+		t.exec();
+	}
+
+	/**
+	 * Splits `text` into words and counts them.
+	 *
+	 * @param text  The text to process.
+	 */
+	public void processText(Transaction t, String url, String text) {
+		// replace punctuation with spaces, convert to lower case, and split on whitespace
+		String[] array = text.replaceAll("\\pP", " ").toLowerCase().split("\\s+");
+
+		for (int i=0; i<array.length; i++) {
+			String term = array[i];
+			t.hincrBy(termCounterKey(url), term, 1);
+			t.sadd(urlSetKey(term), url);
+		}
 	}
 
 	/**
